@@ -8,16 +8,13 @@ class IsaacEnv():
 
 
 class IsaacJugglingWam4(IsaacEnv):
-
     n_dof = 4
     p_gains  = np.array([200.0, 300.0, 100.0, 100.0])
     d_gains  = np.array([  7.0,  15.0,   5.0,   2.5])
     max_ctrl = np.array([150.0, 125.0,  40.0,  60.0])
     min_ctrl = -max_ctrl
     dt = 0.002
-
     q_home = np.array([0., -1.986, 0., 3.146])
-
 
     def __init__(self, gym, env, robots, objects):
         self.gym = gym
@@ -31,7 +28,6 @@ class IsaacJugglingWam4(IsaacEnv):
         props["stiffness"].fill(0.0)
         props["damping"].fill(0.0)
         self.gym.set_actor_dof_properties(self.env, self.robot, props)
-        # self.gym.set_rigid_body_color(self.env, balls[0], )
 
         for ball in self.balls:
             shape_props = gym.get_actor_rigid_shape_properties(self.env, ball)
@@ -51,9 +47,8 @@ class IsaacJugglingWam4(IsaacEnv):
         gym.set_actor_rigid_shape_properties(self.env, self.robot, shape_props)
 
 
-
     def apply_action(self, q=None, dq=None, tau=None):
-        # state = self.gym.get_actor_dof_states(self.env, self.robot, gymapi.STATE_NONE)
+        # PD + feed forward
         state = self.gym.get_actor_dof_states(self.env, self.robot, gymapi.STATE_ALL)
         self.pos = state['pos']
         self.vel = state['vel']
@@ -73,6 +68,7 @@ class IsaacJugglingWam4(IsaacEnv):
         motor_torques = np.clip(motor_torques, self.min_ctrl, self.max_ctrl, dtype=np.float32)
         self.gym.apply_actor_dof_efforts(self.env, self.robot, motor_torques)
 
+
     def reset(self, q=None, dq=None, ball1_pos=None, ball2_pos=None, ball1_vel=None, ball2_vel=None):
         if q is None:
             q = self.q_home
@@ -83,32 +79,17 @@ class IsaacJugglingWam4(IsaacEnv):
         state['vel'] = dq
         self.gym.set_actor_dof_states(self.env, self.robot, state, gymapi.STATE_ALL)
 
-        # ball1_handle = self.gym.get_rigid_handle(self.env, "Ball1", "base_link")
-        # ball2_handle = self.gym.get_rigid_handle(self.env, "Ball2")
+        # TODO: reset ball states
 
-
-        # ball1_pose = gymapi.Transform()
-        # ball2_pose = gymapi.Transform()
-        # # ball1_pose.p = gymapi.Vec3(0.87, 0.086, 1.07)
-        # ball1_pose.p = gymapi.Vec3(0.88, 0.086, 1.1)
-        # ball2_pose.p = gymapi.Vec3(0.87, -0.086, 2.0)
-
-        # self.gym.set_rigid_transform(self.env, self.balls[0], ball1_pose)
-        # self.gym.set_rigid_transform(self.env, self.balls[0], ball2_pose)
-        # self.gym.set_rigid_linear_velocity(self.env, ball1_handle, gymapi.Vec3(0., 0., 0.))
-        # self.gym.set_rigid_linear_velocity(self.env, ball2_handle, gymapi.Vec3(0., 0., 0.))
 
     def get_ee_trafo(self):
         ee_handle = self.gym.get_rigid_handle(self.env, "Robot", "tool_col")
         trafo = self.gym.get_rigid_transform(self.env, ee_handle)
         return trafo
 
+
     def get_ball_positions(self):
-        # ball1_handle = self.gym.get_rigid_handle(self.env, "Ball1", "base_link")
-        # ball2_handle = self.gym.get_rigid_handle(self.env, "Ball2", "base_link")
-        # ball1_trafo = self.gym.get_rigid_transform(self.env, ball1_handle)
-        # ball2_trafo = self.gym.get_rigid_transform(self.env, ball2_handle)
-        # return np.array([ball1_trafo.p, ball2_trafo.p])
+        # TODO: get ball positions
         vec = gymapi.Vec3(0, 0, 3)
         return np.array([vec, vec])
 
@@ -116,7 +97,6 @@ class IsaacJugglingWam4(IsaacEnv):
 
 class IsaacSim:
     def __init__(self, env_type, num_envs):
-        # TODO: how does this work?
         args = gymutil.parse_arguments(
             description="Basketbot Simulaton",
             custom_parameters=[
@@ -139,8 +119,6 @@ class IsaacSim:
             sim_params.physx.use_gpu = True
             # sim_params.physx.solver_type = 1
 
-        # sim_params.physx.use_gpu = False
-
         self.sim = self.gym.create_sim(args.compute_device_id, args.graphics_device_id,
                                        args.physics_engine, sim_params)
 
@@ -156,13 +134,9 @@ class IsaacSim:
         asset_options.fix_base_link = True
         robot_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
 
-        # Load the environment assets:
-        asset_file = "urdf/environment/ball.urdf"
+        # Make ball asset:
         asset_options = gymapi.AssetOptions()
-        # ball_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
         ball_asset = self.gym.create_sphere(self.sim, 0.0375, asset_options)
-
-        sphere_asset = self.gym.create_sphere(self.sim, 0.0375, asset_options)
 
         # Env gird:
         envs_per_row = 3
@@ -175,35 +149,27 @@ class IsaacSim:
         # Create and populate envs:
         self.envs = []
         for i in range(num_envs):
+            # env
             env = self.gym.create_env(self.sim, env_lower, env_upper, envs_per_row)
+            # robot
             default_pose = gymapi.Transform()  # Default pose
             robot = self.gym.create_actor(env, robot_asset, default_pose, "Robot", i)
+            # ball 1
             ball1_pose = gymapi.Transform()
             ball1_pose.p = gymapi.Vec3(0.87, 0.086, 1.07)
             ball1 = self.gym.create_actor(env, ball_asset, ball1_pose, "Ball1", i)
-            shape_props = self.gym.get_actor_rigid_shape_properties(env, ball1)
-            print(shape_props)
-            shape_props[0].restitution = 0
-            self.gym.set_actor_rigid_shape_properties(env, ball1, shape_props)
+            # ball 2
             ball2_pose = gymapi.Transform()
             ball2_pose.p = gymapi.Vec3(0.87, -0.086, 2.0)
             ball2 = self.gym.create_actor(env, ball_asset, ball2_pose, "Ball2", i)
-            shape_props = self.gym.get_actor_rigid_shape_properties(env, ball2)
-            print(shape_props)
-            shape_props[0].restitution = 0
-            self.gym.set_actor_rigid_shape_properties(env, ball2, shape_props)
-            # sphere_pose = gymapi.Transform()
-            # sphere_pose.p = gymapi.Vec3(0, 0, 2)
-            # sphere = self.gym.create_actor(env, sphere_asset, sphere_pose, "Sphere", i)
+
             self.envs.append(IsaacJugglingWam4(self.gym, env, [robot], [ball1, ball2]))
 
 
-        # Create viewer (if rendered)
+        # Create viewer (if rendering)
         self.viewer = None
         if self.render:
             self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
-            # Look at the first env
-            # cam_pos = gymapi.Vec3(5, 20, 2)
             cam_pos = gymapi.Vec3(1.7, 1.7, 1.5)
             cam_target = gymapi.Vec3(0.8, 0, 1.3)
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
@@ -211,8 +177,6 @@ class IsaacSim:
             if self.viewer is None:
                     self.render = False
                     print("*** Failed to create viewer -> rendering deactivated")
-
-        self.time_step = 0
 
 
     def __del__(self):
@@ -228,7 +192,6 @@ class IsaacSim:
 
 
     def step(self): # step the physics
-
         self.gym.simulate(self.sim)
         self.gym.fetch_results(self.sim, True)
 
@@ -244,17 +207,3 @@ class IsaacSim:
         self.time_step += 1
 
         return self.time_step
-
-
-
-def main():
-
-    sim = IsaacSim(IsaacJugglingWam4, num_envs=24)
-    for _ in range(10):
-    # while True:
-        sim.step()
-
-
-if __name__ == '__main__':
-    main()
-
